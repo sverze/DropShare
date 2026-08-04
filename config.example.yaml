@@ -1,0 +1,137 @@
+
+general:
+  appName: DropShare
+  appUrl: http://localhost:3000
+  secureCookies: "false"
+  showHomePage: "true"
+  sessionDuration: 3 months
+share:
+  allowRegistration: "true"
+  allowUnauthenticatedShares: "false"
+  maxAnonymousExpiration: 5 days
+  maxExpiration: 0 days
+  shareIdLength: "8"
+  maxSize: "1000000000"
+  zipCompressionLevel: "9"
+  chunkSize: "10000000"
+  autoOpenShareModal: "false"
+cache:
+  redis-enabled: "false"
+  redis-url: redis://dropshare-redis:6379
+  ttl: "60"
+  maxItems: "1000"
+email:
+  enableShareEmailRecipients: "false"
+  shareRecipientsSubject: Files shared with you
+  shareRecipientsMessage: >-
+    Hey!
+
+    {creator} ({creatorEmail}) shared some files with you. You can view or download the
+    files with this link: {shareUrl}
+
+    The share will expire {expires}.
+
+    Note: {desc}
+
+    Shared securely with DropShare
+  reverseShareSubject: Reverse share link used
+  reverseShareMessage: |-
+    Hey!
+
+    A share was just created with your reverse share link: {shareUrl}
+
+    Shared securely with DropShare
+  resetPasswordSubject: DropShare password reset
+  resetPasswordMessage: >-
+    Hey!
+
+    You requested a password reset. Click this link to reset your password:
+    {url}
+
+    The link expires in an hour.
+
+    DropShare
+  inviteSubject: DropShare invite
+  inviteMessage: >-
+    Hey!
+
+    You were invited to DropShare. Click this link to accept the invite:
+    {url}
+
+    You can use the email "{email}" and the password "{password}" to sign in.
+
+    DropShare
+smtp:
+  enabled: "false"
+  allowUnauthorizedCertificates: "false"
+  host: ""
+  port: "0"
+  email: ""
+  username: ""
+  password: ""
+ldap:
+  enabled: "false"
+  url: ""
+  bindDn: ""
+  bindPassword: ""
+  searchBase: ""
+  searchQuery: ""
+  adminGroups: ""
+  fieldNameMemberOf: memberOf
+  fieldNameEmail: userPrincipalName
+oauth:
+  allowRegistration: "true"
+  ignoreTotp: "true"
+  disablePassword: "false"
+  github-enabled: "false"
+  github-clientId: ""
+  github-clientSecret: ""
+  google-enabled: "false"
+  google-clientId: ""
+  google-clientSecret: ""
+  microsoft-enabled: "false"
+  microsoft-tenant: common
+  microsoft-clientId: ""
+  microsoft-clientSecret: ""
+  discord-enabled: "false"
+  discord-limitedGuild: ""
+  discord-limitedUsers: ""
+  discord-clientId: ""
+  discord-clientSecret: ""
+  oidc-enabled: "false"
+  oidc-discoveryUri: ""
+  oidc-signOut: "false"
+  oidc-scope: openid email profile
+  oidc-usernameClaim: ""
+  oidc-rolePath: ""
+  oidc-roleGeneralAccess: ""
+  oidc-roleAdminAccess: ""
+  oidc-clientId: ""
+  oidc-clientSecret: ""
+s3:
+  enabled: "false"
+  endpoint: ""
+  region: ""
+  bucketName: ""
+  bucketPath: ""
+  key: ""
+  secret: ""
+  useChecksum: "true"
+legal:
+  enabled: "false"
+  termsOfServiceEnabled: "true"
+  privacyPolicyEnabled: "true"
+  dmcaEnabled: "true"
+  contactEnabled: "true"
+  imprintEnabled: "true"
+  imprintText: ""
+  imprintUrl: ""
+  privacyPolicyText: ""
+  privacyPolicyUrl: ""
+initUser:
+  enabled: false
+  username: admin
+  email: admin@example.com
+  password: my-secure-password
+  isAdmin: true
+  ldapDN: ""

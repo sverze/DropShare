@@ -1,0 +1,54 @@
+services:
+  dropshare:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_DROPSHARE_URL: ${NEXT_PUBLIC_DROPSHARE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_AUTH_URL: ${NEXT_PUBLIC_AUTH_URL:-http://localhost:3000}
+    image: dropshare
+    container_name: dropshare
+    restart: unless-stopped
+    ports:
+      - ${DROPSHARE_BIND:-127.0.0.1}:${DROPSHARE_PORT:-3000}:3000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+    environment:
+      - TRUST_PROXY=${TRUST_PROXY:-true}
+      - APP_URL=${APP_URL:-http://localhost:3000}
+      - PUBLIC_DROPSHARE_URL=${PUBLIC_DROPSHARE_URL:-http://localhost:3000}
+      - PUBLIC_AUTH_URL=${PUBLIC_AUTH_URL:-http://localhost:3000}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-localhost:3000}
+      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-}
+      - WEBAUTHN_ORIGINS=${WEBAUTHN_ORIGINS:-http://localhost:3000}
+      - DATABASE_URL=${DATABASE_URL:-file:../data/dropshare.db?connection_limit=1}
+      # Off by default, matching the app, the docs and self-host/. This used to
+      # default to true, which switched storage on with no endpoint or
+      # credentials set.
+      - R2_ENABLED=${R2_ENABLED:-false}
+      - R2_ENDPOINT=${R2_ENDPOINT-}
+      - R2_BUCKET=${R2_BUCKET-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_PUBLIC_URL=${R2_PUBLIC_URL-}
+      - CLAMAV_HOST=${CLAMAV_HOST:-dropshare-clamav}
+      - CLAMAV_PORT=${CLAMAV_PORT:-3310}
+      - CLAMAV_STREAM_SCAN_TIMEOUT_MS=${CLAMAV_STREAM_SCAN_TIMEOUT_MS:-3600000}
+      - VIRUS_SCAN_AUTO_START=${VIRUS_SCAN_AUTO_START:-false}
+      - DISABLE_SCHEDULED_JOBS=${DISABLE_SCHEDULED_JOBS:-false}
+    volumes:
+      - "${DROPSHARE_DATA_DIR:-/srv/dropshare-data}:/opt/app/backend/data"
+      - "${DROPSHARE_IMAGES_DIR:-/srv/dropshare-data/images}:/opt/app/frontend/public/img"
+    networks:
+      - default
+      - clamav-scan
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=0
+
+networks:
+  clamav-scan:
+    external: true
+    name: clamav-scan_default

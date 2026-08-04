@@ -1,0 +1,42 @@
+# DropShare - self-hosting stack.
+#
+#   1. cp .env.example .env
+#   2. edit .env  (at minimum APP_URL; also WEBAUTHN_RP_ID if you want passkeys)
+#   3. docker compose up -d
+#
+# The first account you create becomes the admin.
+#
+# Auto-updates: the `watchtower` service below checks daily and updates the app
+# whenever a newer image is published to the tag you pinned (e.g. :latest).
+# On a NAS (UGREEN / Synology / QNAP), delete the whole `watchtower` service and
+# use your container manager's built-in auto-update toggle instead.
+
+services:
+  dropshare:
+    image: ${DROPSHARE_IMAGE:-ghcr.io/xcided/dropshare:latest}
+    container_name: dropshare
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:${HOST_PORT:-3000}:3000"
+    env_file: .env
+    volumes:
+      # Persisted across updates. Do NOT delete these - data/ holds the database.
+      - ./data:/opt/app/backend/data
+      - ./images:/opt/app/frontend/public/img
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: dropshare-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # --interval 86400 = check once a day. --label-enable = only update
+    # containers opted in via the label above (won't touch your other stacks).
+    command: --interval 86400 --cleanup --label-enable

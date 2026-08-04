@@ -1,0 +1,25 @@
+:3000 {
+	# Increase limit for large file uploads (50GB)
+	request_body {
+		max_size 50GB
+	}
+
+	# Reverse proxy for /api with unlimited timeouts for large uploads
+	reverse_proxy /api/* http://localhost:{$BACKEND_PORT:8080} {
+		transport http {
+			read_timeout 0
+			write_timeout 0
+			response_header_timeout 0
+		}
+		flush_interval -1
+	}
+
+	# Reverse proxy for all other requests (frontend)
+	reverse_proxy http://localhost:{$PORT:3333} {
+		transport http {
+			read_timeout 0
+			write_timeout 0
+			response_header_timeout 0
+		}
+	}
+}

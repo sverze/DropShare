@@ -1,0 +1,513 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  username String  @unique
+  email    String  @unique
+  password String?
+  isAdmin  Boolean @default(false)
+
+  protected Boolean @default(false)
+
+  role     String  @default("user")
+  ldapDN   String? @unique
+
+  avatar          String?
+  isPro           Boolean @default(false)
+  canCreateShares Boolean @default(true)
+  theme           String  @default("dark")
+
+  maxFileSizeOverride BigInt?
+
+  bannedAt    DateTime?
+  bannedUntil DateTime?
+  banReason   String?
+  bannedById  String?
+
+  tokensValidAfter DateTime?
+
+  shares             Share[]
+  refreshTokens      RefreshToken[]
+  loginTokens        LoginToken[]
+  reverseShares      ReverseShare[]
+  passkeys           Passkey[]
+  createdInviteCodes InviteCode[]       @relation("InviteCodesCreated")
+
+  totpEnabled        Boolean             @default(false)
+  totpVerified       Boolean             @default(false)
+  totpSecret         String?
+  resetPasswordToken ResetPasswordToken?
+
+  oAuthUsers          OAuthUser[]
+  uploadLimitRequests UploadLimitRequest[]
+  shareThemeColors    UserShareThemeColor[]
+  groupMemberships    UserGroupMembership[]
+  groupDonations      GroupDonation[]
+}
+
+model UserShareThemeColor {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name   String
+  color  String
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, color])
+  @@index([userId, createdAt])
+}
+
+model UserGroup {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name           String  @unique
+  shareSizeLimit BigInt?
+
+  memberships UserGroupMembership[]
+  inviteCodes InviteCode[]
+  shares      Share[]
+  donations   GroupDonation[]
+}
+
+model GroupDonation {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  groupId           String
+  userId            String?
+  provider          String  @default("manual")
+  providerInvoiceId String?
+  txHash            String?
+  currency          String
+  amountCrypto      String?
+  amountUsd         Float
+  status            String  @default("pending")
+  metadata          String?
+
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([groupId])
+  @@index([userId])
+  @@index([status])
+  @@index([providerInvoiceId])
+}
+
+model UserGroupMembership {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  role                    String  @default("member")
+  allowEditShares         Boolean @default(false)
+  canEditShareThemeColor  Boolean @default(false)
+  canEditShareName        Boolean @default(false)
+  canEditShareDescription Boolean @default(false)
+  canEditShareFileOrder   Boolean @default(false)
+  canAddFiles             Boolean @default(false)
+  canRemoveFiles          Boolean @default(false)
+
+  userId  String
+  groupId String
+
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@index([userId])
+  @@index([groupId])
+}
+
+model InviteCode {
+  id         String    @id @default(uuid())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  lastUsedAt DateTime?
+
+  code        String    @unique
+  description String?
+  isActive    Boolean   @default(true)
+  maxUses     Int?
+  useCount    Int       @default(0)
+  expiresAt   DateTime?
+
+  createdById String?
+  createdBy   User?      @relation("InviteCodesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  groupId     String?
+  group       UserGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([code])
+  @@index([isActive])
+  @@index([expiresAt])
+  @@index([groupId])
+}
+
+
+model UploadLimitRequest {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requestedLimit BigInt
+  reason         String
+  status         String @default("pending")
+
+  processedAt DateTime?
+  processedBy String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, status], name: "one_pending_per_user")
+  @@index([status])
+}
+
+model Passkey {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  credentialId String  @unique
+  publicKey    String
+  counter      BigInt  @default(0)
+  deviceType   String  @default("singleDevice")
+  backedUp     Boolean @default(false)
+  name         String?
+  transports   String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique @default(uuid())
+  createdAt DateTime @default(now())
+
+  expiresAt DateTime
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  oauthIDToken String?
+}
+
+model LoginToken {
+  token     String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  expiresAt DateTime
+
+  userId String
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  used   Boolean @default(false)
+
+  emailCodeHash     String?
+  emailCodeAttempts Int     @default(0)
+}
+
+model ResetPasswordToken {
+  token     String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  expiresAt DateTime
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model OAuthUser {
+  id               String @id @default(uuid())
+  provider         String
+  providerUserId   String
+  providerUsername String
+  userId           String
+  user             User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Share {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  editedAt  DateTime @default(now())
+
+  name                 String?
+  uploadLocked         Boolean   @default(false)
+  isZipReady           Boolean   @default(false)
+  views                Int       @default(0)
+  downloads            Int       @default(0)
+  expiration           DateTime
+  description          String?
+  removedReason        String?
+  accentColor          String?
+  previewStyle         String    @default("full")
+  groupId              String?
+  virusScanStatus      String    @default("not_scanned")
+  virusScanStartedAt   DateTime?
+  virusScanCompletedAt DateTime?
+  virusScanThreats     String?
+  virusScanError       String?
+
+  creatorId String?
+  creator   User?      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  group     UserGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  reverseShareId String?
+  reverseShare   ReverseShare? @relation(fields: [reverseShareId], references: [id], onDelete: Cascade)
+
+  security        ShareSecurity?
+  recipients      ShareRecipient[]
+  files           File[]
+  activities      ShareActivity[]
+  storageProvider String           @default("LOCAL")
+}
+
+model ShareActivity {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  shareId       String?
+  shareName     String?
+  action        String
+  summary       String
+  details       String?
+  actorId       String?
+  actorUsername String?
+
+  share Share? @relation(fields: [shareId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([shareId])
+  @@index([action])
+}
+
+model ReverseShare {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  token                 String   @unique @default(uuid())
+  name                  String?
+  shareExpiration       DateTime
+  maxShareSize          String
+  sendEmailNotification Boolean
+  remainingUses         Int
+  maxUseCount           Int?
+  simplified            Boolean  @default(false)
+  publicAccess          Boolean  @default(true)
+
+  creatorId String
+  creator   User   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  shares Share[]
+}
+
+model ShareRecipient {
+  id    String @id @default(uuid())
+  email String
+
+  shareId String
+  share   Share  @relation(fields: [shareId], references: [id], onDelete: Cascade)
+}
+
+model File {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  name                    String
+  size                    String
+  order                   Int       @default(0)
+  previewGroup            Boolean   @default(true)
+  previewHeader           String?
+  relativePath            String?
+  lyricsText              String?
+  lyricsSource            String?
+  lyricsSourceUrl         String?
+  lyricsSyncEnabled       Boolean   @default(false)
+  lyricsSyncedAt          DateTime?
+  lyricsSyncStatus        String    @default("not_synced")
+  lyricsSyncError         String?
+  storageLocation         String    @default("s3")
+  lastAccessedAt          DateTime  @default(now())
+  virusScanStatus         String    @default("not_scanned")
+  virusScanStartedAt      DateTime?
+  virusScanCompletedAt    DateTime?
+  virusScanThreats        String?
+  virusScanError          String?
+  videoPreviewStatus      String    @default("not_started")
+  videoPreviewStartedAt   DateTime?
+  videoPreviewCompletedAt DateTime?
+  videoPreviewError       String?
+  videoPreviewQualities   String?
+  videoPreviewDuration    Float?
+  metadata                String?
+  metadataStatus          String    @default("not_started")
+  metadataStartedAt       DateTime?
+  metadataCompletedAt     DateTime?
+  metadataError           String?
+
+  shareId String
+  share   Share  @relation(fields: [shareId], references: [id], onDelete: Cascade)
+
+  @@index([storageLocation, lastAccessedAt])
+  @@index([videoPreviewStatus])
+  @@index([metadataStatus])
+}
+
+model ShareSecurity {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  password String?
+  maxViews Int?
+
+  shareId String? @unique
+  share   Share?  @relation(fields: [shareId], references: [id], onDelete: Cascade)
+}
+
+model Config {
+  updatedAt DateTime @updatedAt
+
+  name         String
+  category     String
+  type         String
+  defaultValue String  @default("")
+  value        String?
+  obscured     Boolean @default(false)
+  secret       Boolean @default(true)
+  locked       Boolean @default(false)
+  order        Int
+
+  @@id([name, category])
+}
+
+model RequestLog {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  ipAddress    String
+
+  ipAddressFull String?
+  method       String
+  path         String
+  statusCode   Int?
+  userAgent    String?
+  browser      String?
+  os           String?
+  device       String?
+  userId       String?
+  username     String?
+  responseTime Int?
+  country      String?
+
+  @@index([createdAt])
+  @@index([ipAddress])
+  @@index([userId])
+  @@index([path])
+}
+
+model BlockedIp {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ipAddress String  @unique
+  note      String?
+
+  expiresAt DateTime?
+
+  userId     String?
+  bannedById String?
+
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([userId])
+}
+
+model RateLimitExemptIp {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ipAddress String  @unique
+  note      String?
+
+  @@index([createdAt])
+}
+
+model ShareSecurityEvent {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  ipAddress String
+  method    String
+  path      String
+  shareId   String?
+  fileId    String?
+  outcome   String
+  reason    String?
+  userAgent String?
+
+  @@index([createdAt])
+  @@index([ipAddress])
+  @@index([outcome])
+  @@index([shareId])
+}
+
+model ShareEngagementEvent {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  type      String
+  shareId   String?
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+}
+
+model EmailTemplate {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  brand       String   @default("dropshare")
+  subject     String
+  htmlBody    String
+  textBody    String?
+  variables   String   @default("[]")
+  isSystem    Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EmailLog {
+  id          String   @id @default(uuid())
+  templateId  String?
+  recipientId String?
+  recipient   String
+  subject     String
+  type        String?
+  status      String   @default("pending")
+  error       String?
+  metadata    String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([type])
+  @@index([templateId])
+  @@index([recipientId])
+  @@index([status])
+}

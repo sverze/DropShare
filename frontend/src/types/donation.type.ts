@@ -1,0 +1,40 @@
+export type GroupDonationSummary = {
+  enabled: boolean;
+  provider: string;
+  groupId: string;
+  groupName: string;
+  storageBytes: number;
+  storageGib: number;
+  storageCostPerGibMonthUsd: number;
+  serverCostPerMonthUsd: number;
+  estimatedMonthlyUsd: number;
+  donatedUsdAllTime: number;
+  displayCurrency: string;
+  displayCountryCode?: string;
+  conversionRateFromUsd: number;
+  storageCostPerGibMonthDisplay: number;
+  serverCostPerMonthDisplay: number;
+  estimatedMonthlyDisplay: number;
+  donatedDisplayAllTime: number;
+  donationNote: string;
+  btcAddress: string;
+  btcpayEnabled: boolean;
+  btcEnabled: boolean;
+  externalUrl: string;
+  externalLabel: string;
+};
+
+export type DonationIntent = {
+  id: string;
+  status: string;
+  provider: string;
+  currency: "BTC";
+  amountUsd: number;
+  amountDisplay: number;
+  displayCurrency: string;
+  address?: string;
+  checkoutUrl?: string;
+  invoiceId?: string;
+  expiresInMinutes?: number;
+  instructions: string;
+};
