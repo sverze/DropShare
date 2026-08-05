@@ -10,11 +10,15 @@ Runs as a single Docker container with an SQLite DB. No external services or obj
 
 ```bash
 mkdir dropshare && cd dropshare
-# download the docker-compose.yml and .env.example files within the self-host/ and copy into this folder
+# download the docker-compose.yml and .env.example files within self-host/
+curl -fsSLO https://raw.githubusercontent.com/xcided/DropShare/main/self-host/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/xcided/DropShare/main/self-host/.env.example
 cp .env.example .env
-nano .env    # at minimum set APP_URL; passkeys, ports and file ownership are set here too, not in the admin UI
+nano .env    # set DROPSHARE_IMAGE, APP_URL, WEBAUTHN_RP_ID
 docker compose up -d
 ```
+
+The container serves plain HTTP. To reach it over HTTPS on your domain, put a reverse proxy in front of it: see [Reverse proxy](self-host/README.md#reverse-proxy).
 
 Open your domain and create your first user account. This will become the site admin.
 
@@ -26,7 +30,7 @@ Full instructions, updates, backups, and troubleshooting: [`self-host/README.md`
 
 **Browser Previews** - view audio, photos, videos, PDFs, and browse zips before you download.
 
-**Accounts** - Local accounts with the ability to set TOTP, passkeys, and OAuth. Create user groups under admin > users for organization and monitoring. LDAP compatible.
+**Accounts** - Local accounts with the ability to set TOTP, passkeys, and OAuth. Create user groups under admin -> users for organization and monitoring. LDAP compatible.
 
 **Admin** - View statistics, request logs, edit email templates, user and security management, and more.
 
@@ -34,7 +38,7 @@ Full instructions, updates, backups, and troubleshooting: [`self-host/README.md`
 
 Most settings are configurable on the admin pages, and changes made there take effect immediately. The `.env` file covers what has to be known before the app boots: the public URL, the passkey domain, the host port and bind address, file ownership, and object storage credentials if you use it.
 
-Uploaded files are stored on the local disk by default. Any S3-compatible provider works: Amazon S3, Cloudflare R2, Backblaze B2, MinIO via the `R2_*` variables, despite the prefix being Cloudflare specific. This can also be configured entirely on the admin > config > S3 page within the app. Use one or the other: storage switches on as soon as either the `R2_*` variables or the admin page is complete.
+Uploaded files are stored on the local disk by default. Any S3-compatible provider works: Amazon S3, Cloudflare R2, Backblaze B2, MinIO via the `R2_*` variables, despite the prefix being Cloudflare specific. This can also be configured entirely on the admin -> config -> S3 page within the app. Use one or the other: storage switches on as soon as either the `R2_*` variables or the admin page is complete.
 
 ## File system structure
 
@@ -75,6 +79,10 @@ The bundled watchtower service checks daily and pulls new images automatically.
 The database is snapshotted to `data/backups` before every migration, and version tags are immutable, so a bad update can be rolled back by pinning the previous tag.
 
 ## Version history
+
+* 2.0.1
+  * Fixed ClamAV host default
+  * Added reverse proxy info and download commands to documentation
 
 * 2.0.0 - Picking up from pingvin-share
   * Initial release

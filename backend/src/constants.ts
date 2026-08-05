@@ -9,7 +9,7 @@ export const DATABASE_URL =
   "file:../data/dropshare.db?connection_limit=1";
 export const CLAMAV_HOST =
   process.env.CLAMAV_HOST ||
-  (process.env.NODE_ENV == "docker" ? "clamav" : "127.0.0.1");
+  (process.env.NODE_ENV == "development" ? "127.0.0.1" : "clamav");
 export const CLAMAV_PORT = parseInt(process.env.CLAMAV_PORT) || 3310;
 
 export const LOG_LEVEL_AVAILABLE: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
