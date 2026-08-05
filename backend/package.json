@@ -1,6 +1,6 @@
 {
   "name": "dropshare-backend",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "scripts": {
     "build": "nest build",
     "dev": "cross-env NODE_ENV=development nest start --watch",
