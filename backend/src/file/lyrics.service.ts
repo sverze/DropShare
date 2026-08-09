@@ -1,15 +1,44 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import axios from "axios";
 
-type GeniusSearchResult = {
+export type LyricsProvider = "genius" | "lrclib";
+
+type LyricsSearchResult = {
   title: string;
   artist: string;
+  /** Genius page URL, or an "lrclib:<id>" pseudo-URL for LRCLIB entries. */
   url: string;
   thumbnail?: string | null;
+  provider: LyricsProvider;
 };
+
+/**
+ * LRCLIB pseudo-URLs. LRCLIB has no per-song web page to link to, so its
+ * entries are addressed by id through the same import path as Genius links.
+ */
+const LRCLIB_URL_PREFIX = "lrclib:";
 
 @Injectable()
 export class LyricsService {
+  private readonly logger = new Logger(LyricsService.name);
+
+  private readonly requestTimeoutMs = Number(
+    process.env.LYRICS_REQUEST_TIMEOUT_MS || 10_000,
+  );
+
+  // LRCLIB asks callers to identify themselves rather than impersonate a
+  // browser, and unlike Genius it does not block requests from hosting
+  // providers.
+  private readonly lrclibHeaders = {
+    "User-Agent": "DropShare (https://github.com/sverze/DropShare)",
+    Accept: "application/json",
+  };
+
   private readonly geniusHeaders = {
     "User-Agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -19,16 +48,63 @@ export class LyricsService {
     Referer: "https://genius.com/",
   };
 
-  async searchGenius(rawQuery: string): Promise<GeniusSearchResult[]> {
+  /**
+   * Search both providers and merge.
+   *
+   * Genius has by far the better catalogue, particularly for unreleased and
+   * leaked material, but it serves 403 to requests from hosting providers.
+   * LRCLIB does not block, so it keeps the feature alive for released tracks.
+   * A failure of either provider is not fatal as long as the other answers.
+   */
+  async search(rawQuery: string): Promise<LyricsSearchResult[]> {
     const query = rawQuery.trim();
 
     if (!query) {
       throw new BadRequestException("Search query is required");
     }
 
+    const [genius, lrclib] = await Promise.allSettled([
+      this.searchGenius(query),
+      this.searchLrclib(query),
+    ]);
+
+    const results = [
+      ...(genius.status === "fulfilled" ? genius.value : []),
+      ...(lrclib.status === "fulfilled" ? lrclib.value : []),
+    ];
+
+    if (genius.status === "rejected") {
+      this.logger.warn(
+        `Genius search failed: ${this.describeFailure(genius.reason)}`,
+      );
+    }
+    if (lrclib.status === "rejected") {
+      this.logger.warn(
+        `LRCLIB search failed: ${this.describeFailure(lrclib.reason)}`,
+      );
+    }
+
+    // Only surface an error when nothing at all came back; a partial result is
+    // more useful than a failure.
+    if (
+      results.length === 0 &&
+      genius.status === "rejected" &&
+      lrclib.status === "rejected"
+    ) {
+      throw new ServiceUnavailableException(
+        "Lyrics search is unavailable right now. Both Genius and LRCLIB " +
+          "failed to respond - you can still paste lyrics in manually.",
+      );
+    }
+
+    return results;
+  }
+
+  private async searchGenius(query: string): Promise<LyricsSearchResult[]> {
     const response = await axios.get("https://genius.com/api/search/song", {
       headers: this.geniusHeaders,
       params: { q: query },
+      timeout: this.requestTimeoutMs,
     });
 
     const sections = response.data?.response?.sections;
@@ -50,15 +126,107 @@ export class LyricsService {
           result.song_art_image_thumbnail_url ||
           result.song_art_image_url ||
           null,
+        provider: "genius" as const,
       }));
   }
 
-  async importFromGenius(rawUrl: string) {
-    const url = this.normalizeGeniusUrl(rawUrl);
-    const response = await axios.get(url, {
-      headers: this.geniusHeaders,
-      responseType: "text",
+  private async searchLrclib(query: string): Promise<LyricsSearchResult[]> {
+    const response = await axios.get("https://lrclib.net/api/search", {
+      headers: this.lrclibHeaders,
+      params: { q: query },
+      timeout: this.requestTimeoutMs,
     });
+
+    const rows = Array.isArray(response.data) ? response.data : [];
+
+    return rows
+      .filter((row: any) => row?.id && (row.plainLyrics || row.syncedLyrics))
+      .slice(0, 8)
+      .map((row: any) => ({
+        title: String(row.trackName || "").trim(),
+        artist: String(row.artistName || "").trim(),
+        url: `${LRCLIB_URL_PREFIX}${row.id}`,
+        thumbnail: null,
+        provider: "lrclib" as const,
+      }));
+  }
+
+  /**
+   * Fetch lyrics for a search result or a pasted link. Routes on the URL:
+   * LRCLIB entries carry the pseudo-URL minted above, anything else is
+   * treated as a Genius page.
+   */
+  async importFromUrl(rawUrl: string) {
+    const trimmed = rawUrl.trim();
+
+    if (trimmed.toLowerCase().startsWith(LRCLIB_URL_PREFIX)) {
+      return this.importFromLrclib(trimmed.slice(LRCLIB_URL_PREFIX.length));
+    }
+
+    return this.importFromGenius(trimmed);
+  }
+
+  private async importFromLrclib(rawId: string) {
+    const id = rawId.trim();
+
+    if (!/^\d+$/.test(id)) {
+      throw new BadRequestException("Invalid LRCLIB id");
+    }
+
+    let response: { data: any };
+    try {
+      response = await axios.get(`https://lrclib.net/api/get/${id}`, {
+        headers: this.lrclibHeaders,
+        timeout: this.requestTimeoutMs,
+      });
+    } catch (error) {
+      throw this.toUpstreamException(error, "LRCLIB");
+    }
+
+    const row = response.data ?? {};
+
+    // Prefer plain lyrics. syncedLyrics is LRC format with a [mm:ss.xx] stamp
+    // per line, which would render as literal noise in the lyrics view.
+    const lyricsText = String(
+      row.plainLyrics || this.stripLrcTimestamps(row.syncedLyrics || ""),
+    ).trim();
+
+    if (!lyricsText) {
+      throw new BadRequestException("LRCLIB has no lyrics for that track");
+    }
+
+    const title = [row.trackName, row.artistName]
+      .filter(Boolean)
+      .join(" - ")
+      .trim();
+
+    return {
+      url: `${LRCLIB_URL_PREFIX}${id}`,
+      title: title || "Imported from LRCLIB",
+      lyricsText,
+    };
+  }
+
+  private stripLrcTimestamps(synced: string) {
+    return String(synced)
+      .split("\n")
+      .map((line) => line.replace(/^\s*\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]\s*/, ""))
+      .join("\n");
+  }
+
+  private async importFromGenius(rawUrl: string) {
+    const url = this.normalizeGeniusUrl(rawUrl);
+
+    let response: { data: any };
+    try {
+      response = await axios.get(url, {
+        headers: this.geniusHeaders,
+        responseType: "text",
+        timeout: this.requestTimeoutMs,
+      });
+    } catch (error) {
+      throw this.toUpstreamException(error, "Genius");
+    }
 
     const html = String(response.data || "");
     const lyricsHtml = this.extractLyricsHtml(html);
@@ -74,6 +242,71 @@ export class LyricsService {
       title,
       lyricsText,
     };
+  }
+
+  /**
+   * Turn an upstream failure into something the user can act on.
+   *
+   * Without this an axios rejection propagates as a bare 500 "Internal server
+   * error", which tells nobody anything. The 403 case is the common one and
+   * deserves a specific message: Genius blocks requests originating from
+   * hosting providers, so a self-hosted instance on any cloud will see it and
+   * no amount of retrying will help.
+   */
+  private toUpstreamException(error: unknown, provider: string) {
+    const status = (error as any)?.response?.status;
+    const code = (error as any)?.code;
+
+    if (status === 403 || status === 401) {
+      return new ServiceUnavailableException(
+        `${provider} is refusing requests from this server (HTTP ${status}). ` +
+          `This usually means the host's IP range is blocked. ` +
+          `Try the other provider, or paste the lyrics in manually.`,
+      );
+    }
+
+    if (status === 404) {
+      return new BadRequestException(`${provider} has no lyrics at that link`);
+    }
+
+    if (status === 429) {
+      return new ServiceUnavailableException(
+        `${provider} is rate limiting this server. Try again shortly.`,
+      );
+    }
+
+    if (code === "ECONNABORTED" || code === "ETIMEDOUT") {
+      return new ServiceUnavailableException(`${provider} timed out`);
+    }
+
+    if (
+      code === "ENOTFOUND" ||
+      code === "ENETUNREACH" ||
+      code === "EHOSTUNREACH" ||
+      code === "ECONNREFUSED"
+    ) {
+      return new ServiceUnavailableException(
+        `Could not reach ${provider} from this server (${code})`,
+      );
+    }
+
+    this.logger.error(
+      `Unexpected ${provider} failure: ${this.describeFailure(error)}`,
+    );
+
+    return new ServiceUnavailableException(
+      `${provider} lookup failed. You can still paste lyrics in manually.`,
+    );
+  }
+
+  private describeFailure(error: unknown) {
+    const status = (error as any)?.response?.status;
+    const code = (error as any)?.code;
+    const message = (error as any)?.message ?? String(error);
+
+    return [status && `HTTP ${status}`, code, message]
+      .filter(Boolean)
+      .join(" ");
   }
 
   private normalizeGeniusUrl(rawUrl: string) {

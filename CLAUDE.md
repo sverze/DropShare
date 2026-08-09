@@ -136,6 +136,26 @@ Two upload paths exist:
 
 Everything under `data/` except `dropshare.db`, `uploads/`, `avatars/` and `images/` is a rebuildable cache (zip temp, archive cache, video preview/HLS caches, thumbnails).
 
+### Lyrics providers
+
+`backend/src/file/lyrics.service.ts` queries **two** providers concurrently and
+merges the results, each tagged with a `provider`. A failure of one is not
+fatal — only a failure of both raises.
+
+- **Genius** has by far the better catalogue, especially for unreleased and
+  leaked material, but it serves **403 to any request from a hosting
+  provider's IP range**. It works from a residential connection and fails from
+  every cloud. Nothing in the code can fix that; the block is on source IP.
+- **LRCLIB** is free, keyless, and does not block cloud hosts, but its
+  crowd-sourced catalogue covers released tracks only. Its entries have no web
+  page, so they are addressed by the pseudo-URL `lrclib:<id>`, which
+  `importFromUrl()` routes on.
+
+`lyricsText` is stored as plain text with only `<b> <strong> <i> <em> <u>`
+permitted — see `keepSafeLyricsFormatting()`. LRC timestamps are stripped
+before storage. Upstream failures are mapped to actionable messages by
+`toUpstreamException()` rather than surfacing as a bare 500.
+
 ### Scheduled jobs
 
 `backend/src/jobs/jobs.service.ts` holds all `@Cron` work: expiring shares and reverse shares, deleting unfinished shares, pruning temp chunks, expired tokens, request logs (retention from `general.requestLogRetentionDays`) and email logs. `DISABLE_SCHEDULED_JOBS=true` turns the whole set off — check this first when "nothing is being cleaned up".

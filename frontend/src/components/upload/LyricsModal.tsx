@@ -28,6 +28,9 @@ import toast from "../../utils/toast.util";
 
 const MAX_LYRICS_LENGTH = 50000;
 
+/** Lyrics sources fetched from a provider, as opposed to typed or uploaded. */
+type ImportedLyricsSource = "genius-link" | "genius-search" | "lrclib";
+
 const LyricsModal = ({
   opened,
   fileName,
@@ -105,8 +108,15 @@ const LyricsModal = ({
     }
   };
 
-  const isGeniusSource = (value: LyricsAttachment["source"]) =>
-    value === "genius-link" || value === "genius-search";
+  // Sources that came from an external lookup rather than being typed in.
+  // Declared as a type predicate so callers narrow correctly when passing the
+  // source on to importFromGenius, which only accepts these three.
+  const isImportedSource = (
+    value: LyricsAttachment["source"],
+  ): value is ImportedLyricsSource =>
+    value === "genius-link" || value === "genius-search" || value === "lrclib";
+
+  const isGeniusSource = isImportedSource;
 
   const markLyricsEditedLocally = (
     fallbackSource: LyricsAttachment["source"] = "manual",
@@ -114,8 +124,10 @@ const LyricsModal = ({
   ) => {
     setSyncEnabled(false);
 
-    if (isGeniusSource(source) && sourceUrl) {
-      setSourceLabel("Edited Genius lyrics");
+    if (isImportedSource(source) && sourceUrl) {
+      setSourceLabel(
+        source === "lrclib" ? "Edited LRCLIB lyrics" : "Edited Genius lyrics",
+      );
       return;
     }
 
@@ -129,7 +141,7 @@ const LyricsModal = ({
 
   const importFromGenius = async (
     url: string,
-    importSource: "genius-link" | "genius-search",
+    importSource: ImportedLyricsSource,
     label?: string,
     successMessage = "Lyrics imported from Genius.",
   ) => {
@@ -145,7 +157,13 @@ const LyricsModal = ({
       setLyricsText(imported.lyricsText.slice(0, MAX_LYRICS_LENGTH));
       setSource(importSource);
       setSourceUrl(imported.url);
-      setSourceLabel(label || imported.title || "Imported from Genius");
+      setSourceLabel(
+        label ||
+          imported.title ||
+          (importSource === "lrclib"
+            ? "Imported from LRCLIB"
+            : "Imported from Genius"),
+      );
       setSyncEnabled(true);
       setSyncedAt(new Date().toISOString());
       setGeniusUrlInput(imported.url);
@@ -170,7 +188,7 @@ const LyricsModal = ({
       const results = await lyricsService.searchGenius(geniusQuery);
       setSearchResults(results);
       if (results.length === 0) {
-        toast.error("No Genius results found for that search.");
+        toast.error("No lyrics found for that search.");
       }
     } catch (error) {
       toast.axiosError(error);
@@ -482,7 +500,9 @@ const LyricsModal = ({
                         sourceUrl,
                         source,
                         sourceLabel || undefined,
-                        "Lyrics synced with Genius.",
+                        source === "lrclib"
+                          ? "Lyrics synced with LRCLIB."
+                          : "Lyrics synced with Genius.",
                       )
                     }
                     loading={importing}
@@ -542,22 +562,34 @@ const LyricsModal = ({
                                   <Text size="xs" color="dimmed" lineClamp={1}>
                                     {result.artist}
                                   </Text>
-                                  <Anchor
-                                    href={result.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    size="xs"
-                                  >
-                                    Open on Genius
-                                  </Anchor>
+                                  {result.provider === "lrclib" ? (
+                                    // LRCLIB has no per-song page to link to.
+                                    <Text size="xs" color="dimmed">
+                                      via LRCLIB
+                                    </Text>
+                                  ) : (
+                                    <Anchor
+                                      href={result.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      size="xs"
+                                    >
+                                      Open on Genius
+                                    </Anchor>
+                                  )}
                                 </Box>
                                 <Button
                                   size="xs"
                                   onClick={() =>
                                     void importFromGenius(
                                       result.url,
-                                      "genius-search",
+                                      result.provider === "lrclib"
+                                        ? "lrclib"
+                                        : "genius-search",
                                       `${result.artist} - ${result.title}`,
+                                      result.provider === "lrclib"
+                                        ? "Lyrics imported from LRCLIB."
+                                        : "Lyrics imported from Genius.",
                                     )
                                   }
                                   loading={importing}

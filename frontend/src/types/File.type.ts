@@ -1,6 +1,11 @@
 export type LyricsAttachment = {
   text: string;
-  source: "manual" | "text-file" | "genius-link" | "genius-search";
+  source:
+    | "manual"
+    | "text-file"
+    | "genius-link"
+    | "genius-search"
+    | "lrclib";
   sourceUrl?: string | null;
   sourceLabel?: string | null;
   syncEnabled?: boolean;

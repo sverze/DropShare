@@ -400,7 +400,9 @@ export class ShareService {
           },
         });
 
-        const imported = await this.lyricsService.importFromGenius(
+        // Provider-neutral: lyricsSourceUrl may be a Genius page or an
+        // "lrclib:<id>" pseudo-URL, and the refresh has to handle both.
+        const imported = await this.lyricsService.importFromUrl(
           file.lyricsSourceUrl,
         );
         const updatedFile = await this.prisma.file.update({
