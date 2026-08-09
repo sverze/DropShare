@@ -24,6 +24,33 @@ Open your domain and create your first user account. This will become the site a
 
 Full instructions, updates, backups, and troubleshooting: [`self-host/README.md`](self-host/README.md).
 
+## Hosting on AWS
+
+[`infra/`](infra/README.md) holds an AWS CDK app that deploys DropShare without
+running a server: Lightsail Container Service for the application, S3 for share
+content, and Litestream replicating the SQLite database to S3 so nothing is
+lost when a container restarts. No EC2, no EFS, no load balancer. Roughly $21 a
+month plus download egress.
+
+```bash
+cd infra && npm install
+npx cdk bootstrap aws://<account>/<region>
+npx cdk deploy -c dropshare:domainName=share.example.com -c dropshare:region=<region>
+```
+
+Then build and push the image, seed the database replica, upload share content,
+and create the container deployment. Each step is a script under
+[`infra/scripts/`](infra/scripts) and the order matters — the database replica
+has to exist before the first container starts, or the application will create
+an empty one and replicate that instead.
+
+Full walkthrough, cost breakdown and known limitations:
+[`infra/README.md`](infra/README.md).
+
+Migrating an existing instance? `infra/scripts/upload-shares.sh` restores a
+bucket export into S3, and `infra/scripts/upload-database.sh` seeds the replica
+from a `dropshare.db` file.
+
 ## Features
 
 **File Shares** - Drag and drop uploading, reverse shares, bulk uploading, custom share slug, share expiration management, theme customization, view and download limits, send share over email (requires external SMTP server), and password protection.
@@ -68,6 +95,14 @@ dropshare/
 ```
 
 Only `data/dropshare.db`, `data/uploads/`, `data/avatars/` and `images/` need backing up. Everything else is a cache, rebuilt on demand.
+
+The whole `data/` directory is gitignored — it holds the database, uploaded
+files and local backups, none of which belong in version control.
+
+On the AWS deployment this layout differs: `data/` sits on ephemeral container
+storage, the database is replicated to S3 by Litestream, avatars are synced to
+S3 on a timer, and uploads live in the bucket rather than on disk. See
+[`infra/README.md`](infra/README.md).
 
 ## Built with
 

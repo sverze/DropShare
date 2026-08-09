@@ -1,0 +1,21 @@
+# Litestream replicates the SQLite write-ahead log to S3 continuously.
+#
+# Environment variables are expanded at load time. Credentials come from
+# LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY, which the deployment
+# populates from Secrets Manager - Lightsail container services have no
+# instance role to fall back on.
+
+dbs:
+  - path: /opt/app/backend/data/dropshare.db
+    replicas:
+      - name: s3
+        type: s3
+        bucket: $S3_BUCKET
+        path: _db
+        region: $AWS_REGION
+        # One second of writes is the most that can be lost to an ungraceful
+        # stop. For share metadata that is an acceptable window.
+        sync-interval: 1s
+        # Keep a day of granular history so a bad write can be rolled back.
+        retention: 24h
+        snapshot-interval: 1h

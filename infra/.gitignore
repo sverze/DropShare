@@ -1,0 +1,12 @@
+node_modules
+cdk.out
+*.js
+!assets/*.js
+*.d.ts
+.cdk.staging
+
+# Cached context lookups. Not state - CDK keeps no local state, the
+# CloudFormation stack in AWS is the source of truth. This file only caches
+# environment lookups and embeds the AWS account id, which does not belong in
+# a public repository.
+cdk.context.json
