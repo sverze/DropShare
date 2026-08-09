@@ -55,6 +55,11 @@ CONTAINERS="$(python3 - "$IMAGE" "$BUCKET" "$DOMAIN" "$REGION" "$ACCESS_KEY_ID" 
 import json, sys
 image, bucket, domain, region, key_id, key_secret = sys.argv[1:7]
 site = f"https://{domain}"
+
+# Passkeys are bound to the relying-party id, and credentials enrolled under
+# one are worthless under another. Use the registrable domain rather than the
+# host, so a later move between www and the apex does not orphan them.
+rp_id = domain[4:] if domain.startswith("www.") else domain
 print(json.dumps({
     "dropshare": {
         "image": image,
@@ -63,7 +68,7 @@ print(json.dumps({
             "APP_URL": site,
             "PUBLIC_DROPSHARE_URL": site,
             "PUBLIC_AUTH_URL": site,
-            "WEBAUTHN_RP_ID": domain,
+            "WEBAUTHN_RP_ID": rp_id,
             "WEBAUTHN_RP_NAME": "DropShare",
             "WEBAUTHN_ORIGINS": site,
             "TRUST_PROXY": "true",

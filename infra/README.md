@@ -72,15 +72,30 @@ npx cdk deploy -c dropshare:region=us-west-2
 npx cdk deploy -c dropshare:region=us-west-2 -c dropshare:domainName=share.example.com
 ```
 
-Adding a domain later is three commands:
+Adding a domain later is three commands. `altNames` puts extra hostnames on the
+same certificate — worth doing for the apex when the canonical address is `www`,
+so the other one does not throw a TLS error, and so you avoid a second
+validation round:
 
 ```bash
-npx cdk deploy -c dropshare:region=$REGION -c dropshare:domainName=$DOMAIN
-# validate the certificate CNAME at your DNS provider, then
-npx cdk deploy -c dropshare:region=$REGION -c dropshare:domainName=$DOMAIN \
+npx cdk deploy -c dropshare:region=$REGION \
+  -c dropshare:domainName=www.example.com -c dropshare:altNames=example.com
+# add the validation CNAMEs at your DNS provider, wait for ISSUED, then
+npx cdk deploy -c dropshare:region=$REGION \
+  -c dropshare:domainName=www.example.com -c dropshare:altNames=example.com \
   -c dropshare:attachDomain=true
-./scripts/deploy-container.sh dropshare <image> <bucket> $REGION $DOMAIN
+./scripts/deploy-container.sh dropshare <image> <bucket> $REGION www.example.com
 ```
+
+Lightsail container services expose a hostname, not an IP, so the site record is
+a CNAME. An apex domain therefore needs a provider offering ALIAS/ANAME —
+Namecheap, Cloudflare, Route 53 and DNSimple all do.
+
+**Passkeys bind to the registrable domain.** `deploy-container.sh` strips a
+leading `www.` when setting `WEBAUTHN_RP_ID`, so credentials enrolled on
+`www.example.com` keep working on `example.com` and survive a later move between
+the two. Setting it to the full host instead would orphan every enrolled
+credential the day you change hostname.
 
 The second pass exists because Lightsail refuses a certificate that is still
 `PENDING_VALIDATION`, and the same stack creates it. The third rewrites

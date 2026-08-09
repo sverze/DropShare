@@ -16,6 +16,12 @@ export interface DropshareStackProps extends cdk.StackProps {
    * later and redeploy - nothing else about the deployment changes.
    */
   readonly domainName?: string;
+  /**
+   * Extra names on the same certificate, e.g. the apex when the canonical
+   * address is www. Covering both avoids a TLS error for whichever one is not
+   * canonical, and avoids a second validation round later.
+   */
+  readonly alternativeNames?: string[];
   /** nano | micro | small | medium | large | xlarge */
   readonly power: string;
   readonly serviceName: string;
@@ -51,7 +57,10 @@ export class DropshareStack extends cdk.Stack {
     // wildcard in a CORS origin, so match the whole namespace rather than
     // deploying the bucket twice.
     const corsOrigins = props.domainName
-      ? [`https://${props.domainName}`]
+      ? [
+          `https://${props.domainName}`,
+          ...(props.alternativeNames ?? []).map((n) => `https://${n}`),
+        ]
       : ["https://*.cs.amazonlightsail.com"];
 
     // ------------------------------------------------------------------
@@ -133,6 +142,9 @@ export class DropshareStack extends cdk.Stack {
       ? new lightsail.CfnCertificate(this, "SiteCertificate", {
           certificateName: `${props.serviceName}-cert`,
           domainName: props.domainName,
+          subjectAlternativeNames: props.alternativeNames?.length
+            ? props.alternativeNames
+            : undefined,
         })
       : undefined;
 
@@ -153,7 +165,10 @@ export class DropshareStack extends cdk.Stack {
           ? [
               {
                 certificateName: certificate.certificateName,
-                domainNames: [props.domainName],
+                domainNames: [
+                  props.domainName,
+                  ...(props.alternativeNames ?? []),
+                ],
               },
             ]
           : undefined,

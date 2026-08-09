@@ -28,6 +28,10 @@ new DropshareStack(app, "DropshareApp", {
   domainName,
   power: app.node.tryGetContext("dropshare:power") ?? "small",
   serviceName: app.node.tryGetContext("dropshare:serviceName") ?? "dropshare",
+  alternativeNames: String(app.node.tryGetContext("dropshare:altNames") ?? "")
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean),
   attachDomain:
     String(app.node.tryGetContext("dropshare:attachDomain") ?? "false") === "true",
   description: `DropShare on Lightsail Container Service - ${
