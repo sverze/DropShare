@@ -152,6 +152,7 @@ export class R2StorageService implements OnModuleInit {
   private interactiveDownloadClient: S3Client;
   private bucket: string;
   private publicUrl: string;
+  private cdnUrl: string;
   private enabled: boolean;
 
   private uploadQueue: Array<() => Promise<void>> = [];
@@ -273,6 +274,7 @@ export class R2StorageService implements OnModuleInit {
     if (!this.enabled) {
       this.bucket = "";
       this.publicUrl = "";
+      this.cdnUrl = "";
       this.client = undefined;
       this.presignClient = undefined;
       this.downloadClient = undefined;
@@ -283,6 +285,7 @@ export class R2StorageService implements OnModuleInit {
 
     this.bucket = config.bucket;
     this.publicUrl = config.publicUrl;
+    this.cdnUrl = config.cdnUrl;
 
     const uploadAgent = new https.Agent({
       maxSockets: 50,
@@ -456,6 +459,8 @@ export class R2StorageService implements OnModuleInit {
       publicUrl: hasConfigPublicUrl
         ? configPublicUrl
         : process.env.R2_PUBLIC_URL || "",
+      // CDN in front of the bucket for downloads. See toCdnUrl().
+      cdnUrl: (process.env.CDN_URL || "").trim().replace(/\/$/, ""),
       // Path-style addressing is what B2 and R2 expect and stays the default.
       // Amazon S3 accepts it too, but steers new deployments at virtual-host
       // addressing, so allow opting out without touching code.
@@ -1665,7 +1670,9 @@ export class R2StorageService implements OnModuleInit {
       commandOptions.ResponseContentDisposition = `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
 
       const command = new GetObjectCommand(commandOptions);
-      return getSignedUrl(this.presignClient, command, { expiresIn });
+      return this.toCdnUrl(
+        await getSignedUrl(this.presignClient, command, { expiresIn }),
+      );
     }
 
     const command = new GetObjectCommand({
@@ -1673,7 +1680,38 @@ export class R2StorageService implements OnModuleInit {
       Key: key,
     });
 
-    return getSignedUrl(this.presignClient, command, { expiresIn });
+    return this.toCdnUrl(
+      await getSignedUrl(this.presignClient, command, { expiresIn }),
+    );
+  }
+
+  /**
+   * Route a presigned download through the CDN.
+   *
+   * A SigV4 presigned URL signs the `host` header, and the host S3 actually
+   * sees is the one CloudFront sends to its origin - the bucket endpoint -
+   * not the host the browser connected to. So swapping the hostname for the
+   * distribution's leaves the signature valid, and downloads that used to go
+   * browser-to-S3 (billed at full S3 egress) now go browser-to-CloudFront,
+   * where the first terabyte each month is free and origin fetches cost
+   * nothing. Links still expire exactly as before.
+   *
+   * Requires the distribution to use the bucket's REST endpoint as a custom
+   * origin, and to forward the query string untouched. Byte-for-byte string
+   * surgery rather than URL parsing, because re-encoding the path or query
+   * would invalidate the signature.
+   */
+  private toCdnUrl(signedUrl: string): string {
+    if (!this.cdnUrl) return signedUrl;
+
+    const schemeEnd = signedUrl.indexOf("://");
+    if (schemeEnd === -1) return signedUrl;
+
+    const afterScheme = signedUrl.slice(schemeEnd + 3);
+    const pathStart = afterScheme.indexOf("/");
+    if (pathStart === -1) return signedUrl;
+
+    return `${this.cdnUrl}${afterScheme.slice(pathStart)}`;
   }
 
   getPublicUrl(key: string): string | null {

@@ -1,7 +1,6 @@
 # DropShare infrastructure (AWS CDK)
 
-Serverless deployment of DropShare on AWS. **No EC2, no EFS, no load balancer,
-no CloudFront.**
+Serverless deployment of DropShare on AWS. **No EC2, no EFS, no load balancer.**
 
 TypeScript rather than Python, to match the rest of the repository.
 
@@ -16,9 +15,11 @@ TypeScript rather than Python, to match the rest of the repository.
      Caddy → Next.js SSR + NestJS
      SQLite on ephemeral disk
             │
-            ├── litestream ──► s3://bucket/_db/        continuous WAL replication
+            ├── litestream ──► s3://bucket/_db/        WAL replication, daily snapshot
             ├── aws s3 sync ─► s3://bucket/_avatars/   every 5 min + on shutdown
-            └── presigned  ──► s3://bucket/shares/     browsers upload/download direct
+            └── presigned  ──► s3://bucket/shares/     uploads go direct
+                                   ▲
+   browser ──► CloudFront ─────────┘                   downloads, 1 TB/mo free
 ```
 
 Resources created: S3 bucket, ECR repository, Lightsail certificate, Lightsail
@@ -146,11 +147,18 @@ the copy restored on every subsequent start.
 | Lightsail container service (`small`: 1 GB / 0.5 vCPU) | $15 |
 | S3, 44 GB + replica | ~$1 |
 | Secrets Manager | ~$0.40 |
+| CloudFront (downloads) | $0 under 1 TB/month |
 | **Fixed** | **~$16** |
-| S3 egress (downloads) | ~$0.09/GB |
 
-Bundled transfer covers traffic through the container service; file downloads
-go browser-to-S3 on presigned URLs and are billed separately.
+Bundled transfer covers traffic through the container service. Downloads go
+browser-to-CloudFront and draw on its permanent 1 TB/month free egress
+allowance; CloudFront's fetches from S3 cost nothing. Beyond 1 TB, CloudFront
+is ~$0.085/GB against S3's ~$0.09 — the free terabyte is the saving, not the
+per-GB rate, so watch the volume rather than assuming it is solved forever.
+
+This was learned the expensive way: downloads originally went browser-to-S3 on
+presigned URLs, with no free allowance, and reached 560 GB and $41 in a single
+month.
 
 Actual tiers, from `aws lightsail get-container-service-powers`:
 

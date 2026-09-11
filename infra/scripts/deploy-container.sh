@@ -22,6 +22,19 @@ REGION="${4:?region required}"
 DOMAIN="${5:-}"
 SECRET_NAME="${SECRET_NAME:-${SERVICE}/app-credentials}"
 
+# CDN for downloads. Read from the stack rather than passed in, so a rollout
+# cannot silently drop it and send every download back to billed S3 egress.
+CDN_URL="${CDN_URL:-$(aws cloudformation describe-stacks --stack-name DropshareApp \
+  --region "$REGION" \
+  --query 'Stacks[0].Outputs[?OutputKey==`CdnUrl`].OutputValue' \
+  --output text 2>/dev/null)}"
+[ "$CDN_URL" = "None" ] && CDN_URL=""
+if [ -n "$CDN_URL" ]; then
+  echo "==> Downloads will be served through ${CDN_URL}"
+else
+  echo "==> WARNING: no CdnUrl output found; downloads will bill full S3 egress"
+fi
+
 if [ -z "$DOMAIN" ]; then
   echo "==> No domain given, reading the Lightsail hostname for ${SERVICE}"
   SERVICE_URL="$(aws lightsail get-container-services \
@@ -51,9 +64,9 @@ SECRET_ACCESS_KEY="$(printf '%s' "$CREDS" | python3 -c 'import json,sys;print(js
 # the SDK credentials object when those are unset, which lets the default
 # provider chain pick up AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY below - so
 # one pair of keys serves the application, litestream and the aws CLI.
-CONTAINERS="$(python3 - "$IMAGE" "$BUCKET" "$DOMAIN" "$REGION" "$ACCESS_KEY_ID" "$SECRET_ACCESS_KEY" <<'PY'
+CONTAINERS="$(python3 - "$IMAGE" "$BUCKET" "$DOMAIN" "$REGION" "$ACCESS_KEY_ID" "$SECRET_ACCESS_KEY" "$CDN_URL" <<'PY'
 import json, sys
-image, bucket, domain, region, key_id, key_secret = sys.argv[1:7]
+image, bucket, domain, region, key_id, key_secret, cdn_url = sys.argv[1:8]
 site = f"https://{domain}"
 
 # Passkeys are bound to the relying-party id, and credentials enrolled under
@@ -78,6 +91,9 @@ print(json.dumps({
             "R2_BUCKET": bucket,
             "R2_REGION": region,
             "R2_FORCE_PATH_STYLE": "false",
+            # Presigned download URLs are rewritten to this host. Empty means
+            # downloads go straight to S3 and are billed at full egress.
+            "CDN_URL": cdn_url,
             "S3_BUCKET": bucket,
             "AWS_REGION": region,
             "AWS_DEFAULT_REGION": region,

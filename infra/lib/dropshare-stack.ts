@@ -1,4 +1,6 @@
 import * as cdk from "aws-cdk-lib";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lightsail from "aws-cdk-lib/aws-lightsail";
@@ -115,6 +117,55 @@ export class DropshareStack extends cdk.Stack {
       ],
     });
 
+    // ------------------------------------------------------------------
+    // CDN for downloads.
+    //
+    // Presigned URLs go browser-to-S3 directly, which is billed at full S3
+    // egress with no free allowance - 560 GB in one month here. CloudFront
+    // includes 1 TB/month of egress permanently and pays nothing for origin
+    // fetches from S3, so routing the same downloads through it removes the
+    // bill without giving up expiring links.
+    //
+    // The bucket is attached as a CUSTOM origin (its REST endpoint), not an
+    // S3 origin with OAC. That is deliberate: CloudFront sends the origin
+    // domain as the Host header, which is exactly the host the presigned
+    // signature was computed over, so S3 validates it normally. An S3 origin
+    // with OAC would have CloudFront re-sign the request and the presigned
+    // query parameters would be ignored.
+    // ------------------------------------------------------------------
+    const downloadOrigin = new origins.HttpOrigin(
+      `${bucket.bucketName}.s3.${region}.amazonaws.com`,
+      {
+        protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
+        readTimeout: cdk.Duration.seconds(60),
+      },
+    );
+
+    const cdn = new cloudfront.Distribution(this, "DownloadCdn", {
+      comment: "DropShare - presigned S3 downloads",
+      defaultBehavior: {
+        origin: downloadOrigin,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        // Every presigned URL carries a unique signature, so a cache key that
+        // included it would never hit, and one that excluded it would serve
+        // objects to requests that presented no signature at all. Caching is
+        // therefore off by design - the saving comes from the free egress
+        // tier, not from cache hits, and origin fetches are free anyway.
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        // Forwards the query string (which carries the signature) plus Range
+        // and conditional headers, so seeking within audio and video still
+        // works. Everything except Host: the viewer's Host must NOT reach the
+        // origin or it would not match what was signed.
+        originRequestPolicy:
+          cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        compress: false,
+      },
+      httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      enableLogging: false,
+    });
+
     const repository = new ecr.Repository(this, "AppRepository", {
       repositoryName: "dropshare",
       imageScanOnPush: true,
@@ -202,6 +253,10 @@ export class DropshareStack extends cdk.Stack {
     // ------------------------------------------------------------------
     // Outputs
     // ------------------------------------------------------------------
+    new cdk.CfnOutput(this, "CdnUrl", {
+      value: `https://${cdn.distributionDomainName}`,
+      description: "Pass to deploy-container.sh as CDN_URL",
+    });
     new cdk.CfnOutput(this, "ServiceName", { value: props.serviceName });
     new cdk.CfnOutput(this, "SharesBucketName", { value: bucket.bucketName });
     new cdk.CfnOutput(this, "EcrRepositoryUri", { value: repository.repositoryUri });

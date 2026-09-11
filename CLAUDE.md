@@ -84,6 +84,21 @@ the parts that constrain how you change things:
 - **Avatars need separate replication.** `user.controller.ts:54` hardcodes
   `join(process.cwd(), "data", "avatars")` and never writes them to object
   storage, so ephemeral disk would lose them. The entrypoint syncs both ways.
+- **Downloads are routed through CloudFront, and the trick is load-bearing.**
+  A SigV4 presigned URL signs the `host` header, and the host S3 sees is the
+  one CloudFront sends to its *origin*, not the one the browser connected to.
+  So `toCdnUrl()` in `r2-storage.service.ts` swaps the hostname for the
+  distribution's and the signature stays valid — expiring links plus
+  CloudFront's permanent 1 TB/month free egress. Three things must hold or it
+  breaks: the distribution uses the bucket's REST endpoint as a **custom
+  origin** (an S3 origin with OAC makes CloudFront re-sign and the presigned
+  params get ignored); the origin request policy forwards the query string and
+  `Range` but **not** the viewer's Host; and the rewrite is string surgery, not
+  URL parsing, because re-encoding the path or query invalidates the signature.
+  Uploads are deliberately not routed through it — ingress is already free.
+- **HLS video previews bypass the CDN.** `ensureCachedVideoPreviewObject()`
+  pulls segments from S3 to local disk server-side and streams from there, so
+  that traffic is billed S3 egress and the cache is lost on every restart.
 - **No local state to manage.** CDK keeps none; the CloudFormation stack in AWS
   is the source of truth. `cdk.out/` and `cdk.context.json` are build output and
   a lookup cache respectively, both gitignored.
