@@ -16,6 +16,13 @@ dbs:
         # One second of writes is the most that can be lost to an ungraceful
         # stop. For share metadata that is an acceptable window.
         sync-interval: 1s
-        # Keep a day of granular history so a bad write can be rolled back.
-        retention: 24h
-        snapshot-interval: 1h
+        # A snapshot is a full copy of the database, so the interval multiplies
+        # the database size into S3 every day. At 1h this wrote 24 copies a day
+        # and reached 56 GB of replica for a database that should be tens of
+        # megabytes. Daily is plenty: recovery replays WAL from the last
+        # snapshot, and the WAL is small.
+        snapshot-interval: 24h
+        # Must exceed snapshot-interval, or the snapshot a restore depends on
+        # can be pruned before the next one is written. Three days of history.
+        retention: 72h
+        retention-check-interval: 1h

@@ -96,6 +96,22 @@ export class DropshareStack extends cdk.Stack {
           id: "abort-incomplete-uploads",
           abortIncompleteMultipartUploadAfter: cdk.Duration.days(3),
         },
+        {
+          // Litestream enforces `retention` only against the generation it is
+          // currently writing. Every container restart starts a NEW generation
+          // and abandons the old one, which Litestream then never touches
+          // again - 53 abandoned generations once reached 43 GB here. This
+          // sweeps them up.
+          //
+          // 30 days, not 3: the live generation is refreshed constantly, so
+          // this only ever catches abandoned data, and the long window means
+          // the replica still survives a month of downtime without expiring
+          // the one copy of the database.
+          id: "expire-abandoned-litestream-generations",
+          prefix: "_db/",
+          expiration: cdk.Duration.days(30),
+          noncurrentVersionExpiration: cdk.Duration.days(1),
+        },
       ],
     });
 
