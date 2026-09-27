@@ -234,3 +234,47 @@ pennies; filtering them is not worth the effort.
 - **No ClamAV.** Scanning stays inert; `VIRUS_SCAN_AUTO_START` defaults off.
 - **An avatar uploaded seconds before an ungraceful stop can be lost**, since
   that sync is on a 5-minute timer rather than continuous.
+
+## Takedown / kill switch
+
+`dropshare:dark` takes the service down for a copyright or abuse notice.
+Nothing is deleted and every step is reversible.
+
+```bash
+# Stop all distribution, keep the app reachable so content can be removed.
+npx cdk deploy DropshareApp -c dropshare:dark=links \
+  -c dropshare:domainName=www.exoshare.org -c dropshare:altNames=exoshare.org \
+  -c dropshare:attachDomain=true -c dropshare:serviceName=dropshare
+
+# Full dark: the above plus the container service stopped.
+#   ...same flags with -c dropshare:dark=all
+
+# Back to normal.
+#   ...same flags with -c dropshare:dark=off
+```
+
+**`domainName` must be `www.exoshare.org` and `altNames` `exoshare.org`, in
+that order.** Swap them and CDK replaces `AWS::Lightsail::Certificate`, which
+means answering the DNS challenge again before the site can serve TLS. Always
+`cdk diff` first and confirm no `requires replacement` appears.
+
+Why it is shaped this way:
+
+- **The bucket Deny is the only thing that actually revokes links.** Downloads
+  are SigV4 presigned URLs and `toCdnUrl()` (`r2-storage.service.ts`) only
+  swaps the hostname, so the same signature works against the bucket's REST
+  endpoint. Disabling the distribution revokes nothing on its own; an explicit
+  Deny beats every Allow including the account root.
+- **`s3:GetObject` only, scoped to `shares/*`.** `DeleteObject` stays allowed so
+  content can be removed while dark, and `_db/` stays readable because
+  `replicated-entrypoint.sh` runs `litestream restore` under `set -eu` — an
+  `AccessDenied` there aborts the entrypoint and crash-loops the container.
+- **Order matters on the way down:** Deny first, then capture evidence, then
+  delete the content through the admin API, then confirm a `_db/` WAL segment
+  newer than the delete, and only then `dark=all`. Stopping the container first
+  removes the API needed to do the removal.
+- **Order reverses on the way up**, and lifting the Deny revives every
+  unexpired link — presigned TTL is 3600s. Keep a narrow permanent Deny on any
+  prefix whose content was actually removed.
+- Block Public Access is already `BLOCK_ALL` and is irrelevant here: presigned
+  requests are authenticated, so BPA never blocked them.

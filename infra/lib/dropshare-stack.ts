@@ -36,6 +36,29 @@ export interface DropshareStackProps extends cdk.StackProps {
    * challenge has been answered.
    */
   readonly attachDomain: boolean;
+  /**
+   * Takedown kill switch. Set from `-c dropshare:dark=...`.
+   *
+   * - `off`   normal operation.
+   * - `links` explicit-Deny on `s3:GetObject` for `shares/*` plus the download
+   *           distribution disabled. This is the lever that actually revokes
+   *           already-issued links: a presigned URL stays valid until it
+   *           expires, and because `toCdnUrl()` only swaps the hostname the
+   *           signature is equally valid against the bucket's own REST
+   *           endpoint - so disabling CloudFront alone revokes nothing. The
+   *           app stays up, and `s3:DeleteObject` stays allowed, so content
+   *           can still be removed through the admin API while dark.
+   * - `all`   the above plus `isDisabled` on the container service.
+   *
+   * Deliberately scoped to `shares/*`: `_db/` and `_avatars/` must stay
+   * readable and writable or Litestream stops replicating and its restore
+   * fails at the next boot.
+   *
+   * Never gate `attachDomain` on this. Lightsail rejects a certificate that is
+   * still PENDING_VALIDATION, so dropping the domain would force another
+   * manual DNS-validation round to get it back.
+   */
+  readonly dark: "off" | "links" | "all";
 }
 
 /**
@@ -118,6 +141,27 @@ export class DropshareStack extends cdk.Stack {
     });
 
     // ------------------------------------------------------------------
+    // Takedown Deny. The load-bearing half of the kill switch.
+    //
+    // An explicit Deny in a resource policy beats every Allow, including the
+    // account root and the app's own IAM user, so this is what stops content
+    // being served no matter which hostname a link points at or who signed it.
+    // GetObject only: DeleteObject stays allowed so the offending content can
+    // still be removed while the switch is on.
+    // ------------------------------------------------------------------
+    if (props.dark !== "off") {
+      bucket.addToResourcePolicy(
+        new iam.PolicyStatement({
+          sid: "DmcaDarkDenySharesRead",
+          effect: iam.Effect.DENY,
+          principals: [new iam.AnyPrincipal()],
+          actions: ["s3:GetObject"],
+          resources: [bucket.arnForObjects("shares/*")],
+        }),
+      );
+    }
+
+    // ------------------------------------------------------------------
     // CDN for downloads.
     //
     // Presigned URLs go browser-to-S3 directly, which is billed at full S3
@@ -143,6 +187,9 @@ export class DropshareStack extends cdk.Stack {
 
     const cdn = new cloudfront.Distribution(this, "DownloadCdn", {
       comment: "DropShare - presigned S3 downloads",
+      // Defence in depth, not a revocation - see the `dark` prop docs. The
+      // domain name survives, so CdnUrl stays valid across a dark period.
+      enabled: props.dark === "off",
       defaultBehavior: {
         origin: downloadOrigin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -226,7 +273,10 @@ export class DropshareStack extends cdk.Stack {
       serviceName: props.serviceName,
       power: props.power,
       scale: 1,
-      isDisabled: false,
+      // `dark=all` only. `dark=links` deliberately leaves the app running:
+      // stopping it first would take away the admin API needed to delete the
+      // reported content.
+      isDisabled: props.dark === "all",
       publicDomainNames:
         certificate && props.attachDomain && props.domainName
           ? [
