@@ -37,6 +37,9 @@ export class FileController {
   ) {}
 
   @Post("track-view")
+  // Was unguarded: anyone could inflate the counters on any share id and read
+  // the totals back, which also confirmed whether an id existed.
+  @UseGuards(FileSecurityGuard)
   @Throttle({
     default: {
       limit: 60,
@@ -58,6 +61,8 @@ export class FileController {
   }
 
   @Post("track-download")
+  // Was unguarded - same as track-view above.
+  @UseGuards(FileSecurityGuard)
   @Throttle({
     default: {
       limit: 60,

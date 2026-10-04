@@ -5,12 +5,25 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Request } from "express";
-import * as moment from "moment";
-import * as argon from "argon2";
 import { PrismaService } from "src/prisma/prisma.service";
 import { ShareSecurityGuard } from "src/share/guard/shareSecurity.guard";
 import { ShareService } from "src/share/share.service";
 
+/**
+ * Access control for the file routes - download, zip, HLS, video preview,
+ * spectrum, thumbnail, metadata.
+ *
+ * This class used to override `canActivate` and never call the parent on its
+ * main path: with no `share_<id>_token` cookie it ran its own expiry, password
+ * and maxViews checks and returned `true`, so the file bytes were served with
+ * no authentication and no authorization. Only the cookie path delegated to
+ * `ShareSecurityGuard`, which meant presenting NO credential took the less
+ * protected route - the opposite of the intent.
+ *
+ * It now always defers to the parent for authentication, authorization,
+ * expiry and password, and adds only the one check the parent does not make:
+ * the per-share view cap.
+ */
 @Injectable()
 export class FileSecurityGuard extends ShareSecurityGuard {
   constructor(
@@ -21,6 +34,9 @@ export class FileSecurityGuard extends ShareSecurityGuard {
   }
 
   async canActivate(context: ExecutionContext) {
+    // Authentication, group authorization, expiry and password. Throws rather
+    // than returning false, so there is no path past it.
+    await super.canActivate(context);
 
     const request: Request = context.switchToHttp().getRequest();
 
@@ -31,59 +47,20 @@ export class FileSecurityGuard extends ShareSecurityGuard {
       ? request.params.shareId
       : request.params.id) as string;
 
-    const shareToken = request.cookies[`share_${shareId}_token`];
-    
-    const apiPassword = request.headers["x-share-password"] as string;
-
-    const share = (await this._prisma.share.findUnique({
+    const share = await this._prisma.share.findUnique({
       where: { id: shareId },
       include: { security: true },
-    })) as any;
+    });
 
-    if (!shareToken) {
-      if (
-        !share ||
-        (moment().isAfter(share.expiration) &&
-          !moment(share.expiration).isSame(0))
-      ) {
-        throw new NotFoundException("File not found");
-      }
+    if (!share) throw new NotFoundException("File not found");
 
-      if (share.security?.password) {
-        if (apiPassword) {
-          try {
-            const isValidPassword = await argon.verify(
-              share.security.password,
-              apiPassword
-            );
-            
-            if (!isValidPassword) {
-              throw new ForbiddenException(
-                "Invalid password",
-                "invalid_password",
-              );
-            }
-          } catch (error) {
-            throw new ForbiddenException(
-              "Invalid password",
-              "invalid_password",
-            );
-          }
-        } else {
-          throw new ForbiddenException("This share is password protected");
-        }
-      }
-
-      if (share.security?.maxViews && share.security.maxViews <= share.views) {
-        throw new ForbiddenException(
-          "Maximum views exceeded",
-          "share_max_views_exceeded",
-        );
-      }
-
-      return true;
-    } else {
-      return super.canActivate(context);
+    if (share.security?.maxViews && share.security.maxViews <= share.views) {
+      throw new ForbiddenException(
+        "Maximum views exceeded",
+        "share_max_views_exceeded",
+      );
     }
+
+    return true;
   }
 }
