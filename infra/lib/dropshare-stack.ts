@@ -94,7 +94,40 @@ export class DropshareStack extends cdk.Stack {
     //   _db/       Litestream replica of the SQLite database
     //   _avatars/  profile images, synced because they are local-disk only
     // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // Access logs.
+    //
+    // Both request logs were off, which left two questions unanswerable: who
+    // was making 19.2M S3 GETs a month against 187k CloudFront viewer
+    // requests, and which IPs had downloaded a file named in a copyright
+    // notice. Neither can be answered retrospectively, so they are on now.
+    //
+    // The `Requester` field will NOT separate Litestream from the download
+    // path - `bucket.grantReadWrite(appUser)` gives both the same IAM user.
+    // The `Key` prefix does: Litestream touches `_db/`, downloads touch
+    // `shares/`. That is the comparison worth running.
+    // ------------------------------------------------------------------
+    const logBucket = new s3.Bucket(this, "AccessLogsBucket", {
+      // CloudFront standard logging writes objects with an ACL, which the
+      // default BucketOwnerEnforced setting rejects outright.
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_PREFERRED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      lifecycleRules: [
+        {
+          // Long enough to answer a billing question or a takedown notice,
+          // short enough that the logs never become a storage line item.
+          id: "expire-access-logs",
+          expiration: cdk.Duration.days(90),
+        },
+      ],
+    });
+
     const bucket = new s3.Bucket(this, "SharesBucket", {
+      serverAccessLogsBucket: logBucket,
+      serverAccessLogsPrefix: "s3-access/",
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
@@ -210,7 +243,12 @@ export class DropshareStack extends cdk.Stack {
       },
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
-      enableLogging: false,
+      // Viewer-side request counts, so the origin-amplification ratio can be
+      // measured against the S3 access logs rather than inferred from the bill.
+      enableLogging: true,
+      logBucket,
+      logFilePrefix: "cloudfront/",
+      logIncludesCookies: false,
     });
 
     const repository = new ecr.Repository(this, "AppRepository", {
