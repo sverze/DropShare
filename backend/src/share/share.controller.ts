@@ -194,6 +194,12 @@ export class ShareController {
     );
   }
 
+  // Was unguarded, and handed anyone who knew or guessed a share id the share
+  // name, description, file count, total size and `firstFileName` - enough to
+  // enumerate and index the contents of every share with no account at all.
+  // Guarded now. The cost is that link unfurls in chat clients stop working,
+  // since they fetch without a session; that is the intended trade.
+  @UseGuards(ShareSecurityGuard)
   @Get(":id/metaData")
   async getMetaData(@Param("id") id: string) {
     return new ShareMetaDataDTO().from(await this.shareService.getMetaData(id));
