@@ -457,6 +457,9 @@ export default {
     "Allow unauthenticated shares",
   "admin.config.share.allow-unauthenticated-shares.description":
     "Whether unauthenticated users can create shares",
+  "admin.config.share.default-share-visibility": "Default share visibility",
+  "admin.config.share.default-share-visibility.description":
+    "Visibility given to newly created shares. \"public\" means anyone with the link can view and download without an account; \"private\" limits it to the creator, the share's group and admins. Existing shares are never changed by this.",
   "admin.config.share.max-expiration": "Max expiration",
   "admin.config.share.max-expiration.description":
     "Maximum share expiration. Set to 0 to allow unlimited expiration.",

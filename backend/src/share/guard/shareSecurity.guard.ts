@@ -11,6 +11,7 @@ import { User } from "@prisma/client";
 import { PrismaService } from "src/prisma/prisma.service";
 import { ShareService } from "src/share/share.service";
 import { JwtGuard } from "src/auth/guard/jwt.guard";
+import { PUBLIC_VISIBILITY } from "src/share/share.constants";
 
 /**
  * Access control for a share.
@@ -24,11 +25,18 @@ import { JwtGuard } from "src/auth/guard/jwt.guard";
  *
  * It is now deny-by-default:
  *
- *   1. Authentication is mandatory. No anonymous path.
- *   2. The viewer must be the creator, a member of the share's group, the
- *      owner of the reverse share that produced it, or an admin.
- *   3. A share password is still honoured, but as defence in depth rather
- *      than as the boundary.
+ *   1. A share marked PUBLIC is readable by anyone holding the link, with no
+ *      account. That is the product: links you can send to people who are not
+ *      members. Uploading still requires an account - see createShare.guard.
+ *   2. A share marked PRIVATE requires authentication, and the viewer must be
+ *      the creator, a member of the share's group, the owner of the reverse
+ *      share that produced it, or an admin.
+ *   3. A share password is still honoured on top of either, as defence in
+ *      depth rather than as the boundary.
+ *
+ * Visibility defaults to PRIVATE on the column, so the migration that added it
+ * could not publish anything retroactively; new shares take their visibility
+ * from the `share.defaultShareVisibility` config variable instead.
  *
  * A viewer who is not allowed gets 404, not 403 - a 403 confirms the share
  * exists to someone with no business knowing that.
@@ -55,13 +63,6 @@ export class ShareSecurityGuard extends JwtGuard {
       ? request.params.shareId
       : request.params.id) as string;
 
-    // Authentication first, and allowed to throw. Checking the share before
-    // authenticating would tell an anonymous caller whether a given id exists.
-    await super.canActivate(context);
-
-    const user = request.user as User;
-    if (!user) throw new NotFoundException("Share not found");
-
     const share = (await this.prisma.share.findUnique({
       where: { id: shareId },
       include: { security: true, reverseShare: true },
@@ -75,8 +76,24 @@ export class ShareSecurityGuard extends JwtGuard {
     )
       throw new NotFoundException("Share not found");
 
-    if (!(await this.isViewerAllowed(share, user)))
-      throw new NotFoundException("Share not found");
+    if (share.visibility !== PUBLIC_VISIBILITY) {
+      // Private: authenticate, but swallow the failure so an anonymous caller
+      // gets the same 404 as for a share that does not exist. Letting the 401
+      // escape here would confirm the id is real to someone with no business
+      // knowing that - and unlike a public share, there is nothing they are
+      // entitled to see.
+      try {
+        await super.canActivate(context);
+      } catch {
+        throw new NotFoundException("Share not found");
+      }
+
+      const user = request.user as User;
+      if (!user) throw new NotFoundException("Share not found");
+
+      if (!(await this.isViewerAllowed(share, user)))
+        throw new NotFoundException("Share not found");
+    }
 
     if (share.security?.password) {
       const shareToken = request.cookies[`share_${shareId}_token`];

@@ -22,6 +22,7 @@ import { EmailService } from "src/email/email.service";
 import { FileService } from "src/file/file.service";
 import { LyricsService } from "src/file/lyrics.service";
 import { PrismaService } from "src/prisma/prisma.service";
+import { parseConfiguredVisibility } from "./share.constants";
 import { R2StorageService } from "src/r2-storage/r2-storage.service";
 import { ReverseShareService } from "src/reverseShare/reverseShare.service";
 import { parseRelativeDateToAbsolute } from "src/utils/date.util";
@@ -1280,6 +1281,14 @@ export class ShareService {
           },
           accentColor: share.accentColor,
           previewStyle: this.normalizePreviewStyle(share.previewStyle),
+          // An explicit choice from the client wins; otherwise the instance
+          // default. Never inherited from anything pre-existing, so a new
+          // share's visibility is always a deliberate value.
+          visibility: share.visibility
+            ? parseConfiguredVisibility(share.visibility)
+            : parseConfiguredVisibility(
+                this.config.get("share.defaultShareVisibility"),
+              ),
           recipients: {
             create: share.recipients
               ? share.recipients.map((email) => ({ email }))

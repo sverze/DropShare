@@ -255,6 +255,14 @@ model Share {
   removedReason        String?
   accentColor          String?
   previewStyle         String    @default("full")
+  // "PRIVATE" | "PUBLIC". Deliberately a String, matching virusScanStatus and
+  // previewStyle above, rather than a Prisma enum - SQLite stores enums as TEXT
+  // anyway and this keeps the migration trivial.
+  //
+  // Defaults to PRIVATE so that the migration cannot make an existing share
+  // public by accident. New shares pick up share.defaultShareVisibility
+  // instead, which ships as "public".
+  visibility           String    @default("PRIVATE")
   groupId              String?
   virusScanStatus      String    @default("not_scanned")
   virusScanStartedAt   DateTime?

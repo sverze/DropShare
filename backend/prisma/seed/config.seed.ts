@@ -461,6 +461,19 @@ export const configVariables = {
       defaultValue: "false",
       secret: false,
     },
+    // Visibility given to a newly created share when the client does not ask
+    // for one: "public" means anyone holding the link can view and download
+    // without an account, "private" restricts it to the creator, the share's
+    // group and admins.
+    //
+    // Existing shares are NOT affected - the column defaults to PRIVATE so a
+    // migration can never publish something retroactively. This only decides
+    // what happens to shares created from now on.
+    defaultShareVisibility: {
+      type: "string",
+      defaultValue: "public",
+      secret: false,
+    },
     allowUninvitedRegisteredShares: {
       type: "boolean",
       defaultValue: "false",

@@ -1,14 +1,5 @@
 import { Type } from "class-transformer";
-import {
-  IsBoolean,
-  IsIn,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  Length,
-  Matches,
-  ValidateNested,
-} from "class-validator";
+import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, Length, Matches, ValidateNested } from "class-validator";
 
 export class ShareSecurityDTO {
   @IsOptional()
@@ -67,4 +58,12 @@ export class CreateShareDTO {
   @IsString()
   @IsIn(["full", "consolidated"])
   previewStyle?: string;
+
+  /**
+   * "public" or "private". Omitted means take share.defaultShareVisibility.
+   */
+  @IsOptional()
+  @IsString()
+  @IsIn(["public", "private"])
+  visibility?: string;
 }
